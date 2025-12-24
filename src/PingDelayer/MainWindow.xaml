@@ -1,0 +1,150 @@
+﻿<Window x:Class="PingDelayer.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:PingDelayer"
+        mc:Ignorable="d"
+        Title="Ping Delayer - Network Latency Simulator" 
+        Height="500" Width="600"
+        ResizeMode="CanMinimize"
+        WindowStartupLocation="CenterScreen"
+        Closing="Window_Closing">
+    <Window.Resources>
+        <Style TargetType="GroupBox">
+            <Setter Property="Margin" Value="10"/>
+            <Setter Property="Padding" Value="10"/>
+        </Style>
+        <Style TargetType="TextBlock">
+            <Setter Property="Margin" Value="5"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+        <Style TargetType="Button">
+            <Setter Property="Padding" Value="20,10"/>
+            <Setter Property="Margin" Value="5"/>
+            <Setter Property="FontSize" Value="14"/>
+        </Style>
+    </Window.Resources>
+    
+    <Grid Margin="15">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Title and Status -->
+        <GroupBox Grid.Row="0" Header="Status">
+            <StackPanel>
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="Status:" FontWeight="Bold" Width="100"/>
+                    <Ellipse x:Name="StatusIndicator" Width="16" Height="16" 
+                             Fill="Red" Margin="5,0" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="StatusText" Text="Inactive" FontWeight="Bold"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,5,0,0">
+                    <TextBlock Text="Queued Packets:" FontWeight="Bold" Width="100"/>
+                    <TextBlock x:Name="QueuedPacketsText" Text="0"/>
+                </StackPanel>
+            </StackPanel>
+        </GroupBox>
+
+        <!-- Delay Control -->
+        <GroupBox Grid.Row="1" Header="Delay Settings">
+            <StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                    <TextBlock Text="Current Delay:" FontWeight="Bold" Width="120"/>
+                    <TextBlock x:Name="CurrentDelayText" Text="0 ms" FontSize="16" 
+                               FontWeight="Bold" Foreground="DarkBlue"/>
+                </StackPanel>
+                
+                <TextBlock Text="Delay Amount (0-1000 ms):" Margin="0,0,0,5"/>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    
+                    <Slider x:Name="DelaySlider" 
+                            Grid.Column="0"
+                            Minimum="0" Maximum="1000" 
+                            Value="100" 
+                            TickFrequency="50" 
+                            IsSnapToTickEnabled="True"
+                            TickPlacement="BottomRight"
+                            ValueChanged="DelaySlider_ValueChanged"
+                            Margin="0,0,10,0"/>
+                    
+                    <TextBox x:Name="DelayTextBox" 
+                             Grid.Column="1"
+                             Width="80" 
+                             Text="100"
+                             VerticalContentAlignment="Center"
+                             TextChanged="DelayTextBox_TextChanged"
+                             PreviewTextInput="DelayTextBox_PreviewTextInput"/>
+                </Grid>
+                
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,10,0,0">
+                    <TextBlock Text="0 ms" FontSize="10" Margin="0,0,20,0"/>
+                    <TextBlock Text="500 ms" FontSize="10" Margin="0,0,20,0"/>
+                    <TextBlock Text="1000 ms" FontSize="10"/>
+                </StackPanel>
+            </StackPanel>
+        </GroupBox>
+
+        <!-- Control Buttons -->
+        <GroupBox Grid.Row="2" Header="Control">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                <Button x:Name="StartButton" 
+                        Content="Start Delay" 
+                        Width="150" 
+                        Click="StartButton_Click"
+                        Background="LightGreen"/>
+                <Button x:Name="StopButton" 
+                        Content="Stop Delay" 
+                        Width="150" 
+                        Click="StopButton_Click"
+                        IsEnabled="False"
+                        Background="LightCoral"/>
+            </StackPanel>
+        </GroupBox>
+
+        <!-- Information -->
+        <GroupBox Grid.Row="3" Header="Information">
+            <StackPanel>
+                <TextBlock TextWrapping="Wrap" FontSize="11">
+                    <Run Text="• This application adds a configurable delay to all network traffic"/>
+                    <LineBreak/>
+                    <Run Text="• Uses WinDivert for packet interception and re-injection"/>
+                    <LineBreak/>
+                    <Run Text="• Minimal jitter design for consistent delay"/>
+                    <LineBreak/>
+                    <Run Text="• Must run as Administrator (required for WinDivert driver)"/>
+                </TextBlock>
+            </StackPanel>
+        </GroupBox>
+
+        <!-- Log/Messages -->
+        <GroupBox Grid.Row="4" Header="Messages">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <TextBox x:Name="LogTextBox" 
+                         IsReadOnly="True" 
+                         TextWrapping="Wrap"
+                         VerticalScrollBarVisibility="Auto"
+                         Background="WhiteSmoke"
+                         FontFamily="Consolas"
+                         FontSize="11"/>
+            </ScrollViewer>
+        </GroupBox>
+
+        <!-- Footer -->
+        <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Center" Margin="10">
+            <TextBlock Text="Ping Delayer v1.0" FontSize="10" Foreground="Gray"/>
+            <TextBlock Text=" | " FontSize="10" Foreground="Gray" Margin="5,0"/>
+            <TextBlock Text="Low-Jitter Network Delay Simulator" FontSize="10" Foreground="Gray"/>
+        </StackPanel>
+    </Grid>
+</Window>
