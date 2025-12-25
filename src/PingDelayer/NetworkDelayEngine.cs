@@ -15,8 +15,11 @@ public class NetworkDelayEngine : IDisposable
     private Thread? releaseThread;
     private PacketQueue packetQueue;
     private volatile bool isRunning;
+    private volatile bool isDisposed;
     private int delayMilliseconds;
     private readonly object lockObject = new object();
+    private int consecutiveErrors = 0;
+    private const int MaxConsecutiveErrors = 10;
 
     // Buffer size for packet capture (64KB)
     private const int BufferSize = 65535;
@@ -46,6 +49,12 @@ public class NetworkDelayEngine : IDisposable
     {
         lock (lockObject)
         {
+            if (isDisposed)
+            {
+                OnErrorOccurred("Cannot start: Engine has been disposed.");
+                return false;
+            }
+
             if (isRunning)
             {
                 OnStatusChanged("Engine is already running.");
@@ -116,25 +125,149 @@ public class NetworkDelayEngine : IDisposable
 
             isRunning = false;
 
-            // Close WinDivert handle to interrupt blocking Recv calls
+            // Shutdown the handle first to unblock any pending Recv() calls
             if (handle != null && !handle.IsInvalid)
             {
-                handle.Shutdown(WinDivertShutdown.Both);
-                handle.Close();
+                try
+                {
+                    handle.Shutdown(WinDivertShutdown.Both);
+                }
+                catch
+                {
+                    // Ignore shutdown errors
+                }
+            }
+
+            // Wait for threads to complete with proper timeout
+            bool captureThreadExited = true;
+            bool releaseThreadExited = true;
+
+            if (captureThread != null && captureThread.IsAlive)
+            {
+                try
+                {
+                    captureThreadExited = captureThread.Join(5000);
+                    if (!captureThreadExited)
+                    {
+                        // Force abort if thread doesn't exit gracefully
+                        try
+                        {
+                            captureThread.Interrupt();
+                            captureThreadExited = captureThread.Join(2000);
+                        }
+                        catch
+                        {
+                            // Ignore interrupt errors
+                        }
+                    }
+                }
+                catch
+                {
+                    // Ignore join errors
+                }
+            }
+
+            if (releaseThread != null && releaseThread.IsAlive)
+            {
+                try
+                {
+                    releaseThreadExited = releaseThread.Join(5000);
+                    if (!releaseThreadExited)
+                    {
+                        // Force abort if thread doesn't exit gracefully
+                        try
+                        {
+                            releaseThread.Interrupt();
+                            releaseThreadExited = releaseThread.Join(2000);
+                        }
+                        catch
+                        {
+                            // Ignore interrupt errors
+                        }
+                    }
+                }
+                catch
+                {
+                    // Ignore join errors
+                }
+            }
+
+            // CRITICAL: Wait longer for I/O completion callbacks to drain
+            // This prevents the race condition where IOCompletionPoller callbacks
+            // are invoked after handle disposal
+            if (handle != null && !handle.IsInvalid)
+            {
+                try
+                {
+                    // Give the thread pool more time to process any queued I/O completions
+                    // AccessViolationExceptions that slip through will be caught by global handlers
+                    Thread.Sleep(2000); // Increased from 1000ms to 2000ms
+                    
+                    // Force thread pool to process pending items
+                    ThreadPool.QueueUserWorkItem(_ => { });
+                    Thread.Sleep(200); // Increased from 100ms
+                }
+                catch
+                {
+                    // Ignore sleep errors
+                }
+            }
+
+            // Close the handle - this must happen after all threads exit
+            // and I/O callbacks drain
+            if (handle != null && !handle.IsInvalid)
+            {
+                try
+                {
+                    handle.Close();
+                }
+                catch
+                {
+                    // Ignore close errors - may throw if operations still pending
+                }
             }
             handle = null;
 
-            // Wait for threads to complete
-            captureThread?.Join(2000);
-            releaseThread?.Join(2000);
+            // Clear remaining packets
+            try
+            {
+                while (packetQueue.Count > 0)
+                {
+                    try
+                    {
+                        var pkt = packetQueue.Dequeue();
+                        pkt?.Dispose();
+                    }
+                    catch
+                    {
+                        break;
+                    }
+                }
+                packetQueue.Clear();
+            }
+            catch
+            {
+                // Ignore cleanup errors
+            }
 
             // Reset timer resolution
-            HighResolutionTimer.ResetResolution();
+            try
+            {
+                HighResolutionTimer.ResetResolution();
+            }
+            catch
+            {
+                // Ignore
+            }
 
-            // Clear remaining packets
-            packetQueue.Clear();
-
-            OnStatusChanged("Engine stopped.");
+            try
+            {
+                OnStatusChanged("Engine stopped.");
+            }
+            catch
+            {
+                // Ignore event notification errors
+            }
         }
     }
 
@@ -146,6 +279,11 @@ public class NetworkDelayEngine : IDisposable
     {
         lock (lockObject)
         {
+            if (isDisposed)
+            {
+                return;
+            }
+
             delayMilliseconds = delayMs;
             OnStatusChanged($"Delay updated to {delayMs}ms.");
         }
@@ -156,32 +294,59 @@ public class NetworkDelayEngine : IDisposable
     /// </summary>
     private void CapturePackets()
     {
-        using var packet = new WinDivertPacket(BufferSize);
-        var addr = new WinDivertAddress();
-
         try
         {
             while (isRunning && handle != null && !handle.IsInvalid)
             {
                 try
                 {
-                    // Receive packet
+                    // Create a new packet and address for each receive
+                    var packet = new WinDivertPacket(BufferSize);
+                    var addr = new WinDivertAddress();
+                    
+                    // Receive packet - this may throw when handle is shutdown
                     handle.Recv(packet, addr);
+
+                    // Check if we're still running after Recv unblocks
+                    if (!isRunning)
+                    {
+                        packet.Dispose();
+                        break;
+                    }
 
                     if (packet.Length > 0)
                     {
+                        // For debugging: try sending immediately to verify Send() works
+                        if (delayMilliseconds == 0)
+                        {
+                            // Zero delay - send immediately and dispose
+                            if (handle != null && !handle.IsInvalid && isRunning)
+                            {
+                                try
+                                {
+                                    handle.Send(packet, addr);
+                                }
+                                catch
+                                {
+                                    // Ignore send errors during shutdown
+                                }
+                            }
+                            packet.Dispose();
+                            continue;
+                        }
+                        
                         // Calculate release timestamp
                         long currentTimestamp = HighResolutionTimer.GetTimestamp();
                         long delayTicks = HighResolutionTimer.MillisecondsToTicks(delayMilliseconds);
                         long releaseTimestamp = currentTimestamp + delayTicks;
 
-                        // Copy packet data
-                        byte[] packetData = new byte[packet.Length];
-                        packet.Span.Slice(0, packet.Length).CopyTo(packetData);
-
-                        // Add to queue
-                        var delayedPacket = new DelayedPacket(packetData, addr, releaseTimestamp);
+                        // Add to queue with the packet object itself
+                        var delayedPacket = new DelayedPacket(packet, addr, releaseTimestamp);
                         packetQueue.Enqueue(delayedPacket);
+                    }
+                    else
+                    {
+                        packet.Dispose();
                     }
                 }
                 catch (Exception ex)
@@ -208,8 +373,6 @@ public class NetworkDelayEngine : IDisposable
     /// </summary>
     private void ReleasePackets()
     {
-        using var packet = new WinDivertPacket(BufferSize);
-        
         try
         {
             while (isRunning)
@@ -231,23 +394,51 @@ public class NetworkDelayEngine : IDisposable
                         // Time to release this packet
                         pkt = packetQueue.Dequeue();
 
-                        if (handle != null && !handle.IsInvalid)
+                        // Check handle validity before sending
+                        WinDivert? currentHandle = handle;
+                        if (currentHandle != null && !currentHandle.IsInvalid && isRunning)
                         {
                             try
                             {
-                                // Copy data to packet buffer
-                                pkt.Data.AsSpan().CopyTo(packet.Span);
+                                // Send the packet object directly - no copying needed
+                                currentHandle.Send(pkt.Packet, pkt.Address);
                                 
-                                // Re-inject packet into the network stack
-                                handle.Send(packet, pkt.Address);
+                                // Reset error counter on successful send
+                                consecutiveErrors = 0;
                             }
                             catch (Exception ex)
                             {
-                                if (isRunning)
+                                consecutiveErrors++;
+                                
+                                if (consecutiveErrors <= 3 && isRunning)
                                 {
+                                    // Only report first few errors to avoid spam
                                     OnErrorOccurred($"Error sending packet: {ex.Message}");
                                 }
-                                break;
+                            }
+                            finally
+                            {
+                                // Dispose the packet after sending (success or failure)
+                                try
+                                {
+                                    pkt.Dispose();
+                                }
+                                catch
+                                {
+                                    // Ignore disposal errors
+                                }
+                            }
+                        }
+                        else
+                        {
+                            // Handle is invalid, just dispose the packet
+                            try
+                            {
+                                pkt.Dispose();
+                            }
+                            catch
+                            {
+                                // Ignore disposal errors
                             }
                         }
                     }
@@ -294,23 +485,57 @@ public class NetworkDelayEngine : IDisposable
     public bool IsRunning => isRunning;
 
     /// <summary>
+    /// Gets whether the engine has been disposed.
+    /// </summary>
+    public bool IsDisposed => isDisposed;
+
+    /// <summary>
     /// Gets the number of packets currently in the queue.
     /// </summary>
     public int QueuedPacketCount => packetQueue.Count;
 
     protected virtual void OnErrorOccurred(string message)
     {
-        ErrorOccurred?.Invoke(this, message);
+        try
+        {
+            // Prevent events from firing after disposal
+            if (!isDisposed)
+            {
+                ErrorOccurred?.Invoke(this, message);
+            }
+        }
+        catch
+        {
+            // Ignore errors in event handlers during shutdown
+        }
     }
 
     protected virtual void OnStatusChanged(string message)
     {
-        StatusChanged?.Invoke(this, message);
+        try
+        {
+            // Prevent events from firing after disposal
+            if (!isDisposed)
+            {
+                StatusChanged?.Invoke(this, message);
+            }
+        }
+        catch
+        {
+            // Ignore errors in event handlers during shutdown
+        }
     }
 
     public void Dispose()
     {
+        if (isDisposed)
+        {
+            return;
+        }
+
+        isDisposed = true;
         Stop();
+        
         GC.SuppressFinalize(this);
     }
 }

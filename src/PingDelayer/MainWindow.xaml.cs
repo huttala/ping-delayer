@@ -52,7 +52,7 @@ public partial class MainWindow : Window
 
     private void UpdateTimer_Tick(object? sender, EventArgs e)
     {
-        if (engine != null)
+        if (engine != null && !engine.IsDisposed)
         {
             // Update queued packet count
             QueuedPacketsText.Text = engine.QueuedPacketCount.ToString();
@@ -61,6 +61,12 @@ public partial class MainWindow : Window
 
     private void Engine_StatusChanged(object? sender, string message)
     {
+        // Check if engine is disposed before processing event
+        if (engine != null && engine.IsDisposed)
+        {
+            return;
+        }
+
         Dispatcher.Invoke(() =>
         {
             LogMessage(message);
@@ -70,6 +76,12 @@ public partial class MainWindow : Window
 
     private void Engine_ErrorOccurred(object? sender, string message)
     {
+        // Check if engine is disposed before processing event
+        if (engine != null && engine.IsDisposed)
+        {
+            return;
+        }
+
         Dispatcher.Invoke(() =>
         {
             LogMessage($"ERROR: {message}");
@@ -79,12 +91,12 @@ public partial class MainWindow : Window
 
     private void UpdateStatus()
     {
-        if (engine != null && engine.IsRunning)
+        if (engine != null && !engine.IsDisposed && engine.IsRunning)
         {
             StatusText.Text = "Active";
             StatusIndicator.Fill = new SolidColorBrush(Colors.Green);
             StartButton.IsEnabled = false;
-            StopButton.IsEnabled = true;
+            //StopButton.IsEnabled = true;
             DelaySlider.IsEnabled = true;
             DelayTextBox.IsEnabled = true;
         }
@@ -93,7 +105,7 @@ public partial class MainWindow : Window
             StatusText.Text = "Inactive";
             StatusIndicator.Fill = new SolidColorBrush(Colors.Red);
             StartButton.IsEnabled = true;
-            StopButton.IsEnabled = false;
+            //StopButton.IsEnabled = false;
             DelaySlider.IsEnabled = true;
             DelayTextBox.IsEnabled = true;
         }
@@ -101,21 +113,21 @@ public partial class MainWindow : Window
 
     private void StartButton_Click(object sender, RoutedEventArgs e)
     {
-        if (engine == null)
+        if (engine == null || engine.IsDisposed)
             return;
 
-        int delay = (int)DelaySlider.Value;
+        int delay = (int)DelaySlider.Value / 2; // Divide by 2 since delay is applied to both directions
         
         if (engine.Start(delay))
         {
-            CurrentDelayText.Text = $"{delay} ms";
+            CurrentDelayText.Text = $"{(int)DelaySlider.Value} ms";
             UpdateStatus();
         }
     }
 
     private void StopButton_Click(object sender, RoutedEventArgs e)
     {
-        if (engine == null)
+        if (engine == null || engine.IsDisposed)
             return;
 
         engine.Stop();
@@ -127,15 +139,19 @@ public partial class MainWindow : Window
         if (isUpdatingFromTextBox)
             return;
 
+        if (DelayTextBox == null)
+            return;
+
         isUpdatingFromSlider = true;
         
-        int delay = (int)DelaySlider.Value;
-        DelayTextBox.Text = delay.ToString();
+        int sliderValue = (int)DelaySlider.Value;
+        DelayTextBox.Text = sliderValue.ToString();
         
-        if (engine != null && engine.IsRunning)
+        if (engine != null && !engine.IsDisposed && engine.IsRunning)
         {
+            int delay = sliderValue / 2; // Divide by 2 since delay is applied to both directions
             engine.UpdateDelay(delay);
-            CurrentDelayText.Text = $"{delay} ms";
+            CurrentDelayText.Text = $"{sliderValue} ms";
         }
         
         isUpdatingFromSlider = false;
@@ -148,16 +164,17 @@ public partial class MainWindow : Window
 
         isUpdatingFromTextBox = true;
         
-        if (int.TryParse(DelayTextBox.Text, out int delay))
+        if (int.TryParse(DelayTextBox.Text, out int sliderValue))
         {
             // Clamp value to valid range
-            delay = Math.Max(0, Math.Min(1000, delay));
-            DelaySlider.Value = delay;
+            sliderValue = Math.Max(0, Math.Min(1000, sliderValue));
+            DelaySlider.Value = sliderValue;
             
-            if (engine != null && engine.IsRunning)
+            if (engine != null && !engine.IsDisposed && engine.IsRunning)
             {
+                int delay = sliderValue / 2; // Divide by 2 since delay is applied to both directions
                 engine.UpdateDelay(delay);
-                CurrentDelayText.Text = $"{delay} ms";
+                CurrentDelayText.Text = $"{sliderValue} ms";
             }
         }
         
@@ -188,11 +205,24 @@ public partial class MainWindow : Window
         // Clean shutdown
         updateTimer?.Stop();
         
-        if (engine != null)
+        if (engine != null && !engine.IsDisposed)
         {
-            LogMessage("Shutting down engine...");
-            engine.Stop();
-            engine.Dispose();
+            try
+            {
+                LogMessage("Shutting down engine...");
+                // Dispose calls Stop internally, no need to call both
+                engine.Dispose();
+            }
+            catch (Exception ex)
+            {
+                // Log but don't prevent window closing
+                LogMessage($"Error during shutdown: {ex.Message}")
+                ;
+            }
+            finally
+            {
+                engine = null;
+            }
         }
     }
 }

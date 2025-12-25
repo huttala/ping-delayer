@@ -7,17 +7,22 @@ namespace PingDelayer;
 /// <summary>
 /// Represents a packet with its data and scheduled release time.
 /// </summary>
-public class DelayedPacket
+public class DelayedPacket : IDisposable
 {
-    public byte[] Data { get; set; }
+    public WinDivertPacket Packet { get; set; }
     public long ReleaseTimestamp { get; set; }
     public WinDivertAddress Address { get; set; }
 
-    public DelayedPacket(byte[] data, WinDivertAddress address, long releaseTimestamp)
+    public DelayedPacket(WinDivertPacket packet, WinDivertAddress address, long releaseTimestamp)
     {
-        Data = data;
+        Packet = packet;
         Address = address;
         ReleaseTimestamp = releaseTimestamp;
+    }
+
+    public void Dispose()
+    {
+        Packet?.Dispose();
     }
 }
 

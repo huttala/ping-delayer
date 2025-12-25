@@ -5,7 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:PingDelayer"
         mc:Ignorable="d"
-        Title="Ping Delayer - Network Latency Simulator" 
+        Title="Ping Increaser - Network Latency Simulator" 
         Height="500" Width="600"
         ResizeMode="CanMinimize"
         WindowStartupLocation="CenterScreen"
@@ -56,12 +56,12 @@
         <GroupBox Grid.Row="1" Header="Delay Settings">
             <StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
-                    <TextBlock Text="Current Delay:" FontWeight="Bold" Width="120"/>
+                    <TextBlock Text="Active Ping Increase:" FontWeight="Bold" Width="140"/>
                     <TextBlock x:Name="CurrentDelayText" Text="0 ms" FontSize="16" 
                                FontWeight="Bold" Foreground="DarkBlue"/>
                 </StackPanel>
                 
-                <TextBlock Text="Delay Amount (0-1000 ms):" Margin="0,0,0,5"/>
+                <TextBlock Text="Ping Increase (0-1000 ms):" Margin="0,0,0,5"/>
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
@@ -72,7 +72,7 @@
                             Grid.Column="0"
                             Minimum="0" Maximum="1000" 
                             Value="100" 
-                            TickFrequency="50" 
+                            TickFrequency="10" 
                             IsSnapToTickEnabled="True"
                             TickPlacement="BottomRight"
                             ValueChanged="DelaySlider_ValueChanged"
@@ -92,6 +92,10 @@
                     <TextBlock Text="500 ms" FontSize="10" Margin="0,0,20,0"/>
                     <TextBlock Text="1000 ms" FontSize="10"/>
                 </StackPanel>
+                
+                <TextBlock TextWrapping="Wrap" FontSize="10" Foreground="Gray" Margin="0,5,0,0" HorizontalAlignment="Center">
+                    <Run Text="Note: Delay applies to both inbound and outbound packets"/>
+                </TextBlock>
             </StackPanel>
         </GroupBox>
 
@@ -99,16 +103,16 @@
         <GroupBox Grid.Row="2" Header="Control">
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
                 <Button x:Name="StartButton" 
-                        Content="Start Delay" 
-                        Width="150" 
+                        Content="Start" 
+                        Width="350" 
                         Click="StartButton_Click"
                         Background="LightGreen"/>
-                <Button x:Name="StopButton" 
+                <!--<Button x:Name="StopButton" 
                         Content="Stop Delay" 
                         Width="150" 
                         Click="StopButton_Click"
                         IsEnabled="False"
-                        Background="LightCoral"/>
+                        Background="LightCoral"/>-->
             </StackPanel>
         </GroupBox>
 
